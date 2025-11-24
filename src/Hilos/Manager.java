@@ -71,7 +71,7 @@ public class Manager {
             long totalErrores = 0;
             List<File> archivosParciales = new ArrayList<>();
 
-            System.out.println("Esperando a los trabajadores...");
+            System.out.println("...");
 
             for (Future<ResumenResultados> f : listaFutures) {
                 try {
