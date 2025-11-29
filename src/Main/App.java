@@ -4,7 +4,10 @@ import Hilos.CriterioFiltro;
 import Hilos.Manager;
 import secuencial.ManagerSecuencial; // Importamos el nuevo manager
 
+import java.io.BufferedReader;
 import java.io.File;
+import java.io.FileReader;
+import java.io.IOException;
 import java.util.Arrays;
 import java.util.Scanner;
 
@@ -39,30 +42,55 @@ public class App {
 
         // --- 3. CONFIGURACIÓN DE FILTROS ---
         System.out.println("\n--- [3] Filtros de Negocio ---");
-        int indiceFiltro = leerEntero(scanner, "   Índice de columna a filtrar (empieza en 0): ");
-
+        System.out.println("   Columnas disponibles para filtrar:");
+        System.out.println("     0: yearmonth");
+        System.out.println("     1: exp_imp");
+        System.out.println("     2: Country");
+        System.out.println("     3: Custom");
+        System.out.println("     4: hs9");
+        System.out.println("     5: Q1");
+        System.out.println("     6: Q2");
+        System.out.println("     7: Value");
+        int indiceFiltro = leerEntero(scanner, "\n   Índice de columna a filtrar: ");
         System.out.print("   Valor buscado (ej. '304', '2019', '1'): ");
         String valorFiltro = scanner.nextLine().trim();
         CriterioFiltro criterio = new CriterioFiltro(indiceFiltro, valorFiltro);
 
         // --- 4. CONFIGURACIÓN DE COLUMNAS (PROYECCIÓN) ---
         System.out.println("\n--- [4] Columnas a guardar ---");
-        System.out.println("   Ingrese índices separados por coma (ej: 0,2,7)");
+        System.out.println("   Columnas disponibles:");
+        System.out.println("     0: yearmonth");
+        System.out.println("     1: exp_imp");
+        System.out.println("     2: Country");
+        System.out.println("     3: Custom");
+        System.out.println("     4: hs9");
+        System.out.println("     5: Q1");
+        System.out.println("     6: Q2");
+        System.out.println("     7: Value");
+        System.out.println("\n   Ingrese índices separados por coma (ej: 0,2,7)");
+        System.out.println("   O ingrese '*' para seleccionar todas las columnas");
         int[] columnasDeseadas = null;
         while (columnasDeseadas == null) {
             System.out.print("   >> Índices: ");
             try {
                 String linea = scanner.nextLine().trim();
-                columnasDeseadas = Arrays.stream(linea.split(","))
-                        .map(String::trim)
-                        .mapToInt(Integer::parseInt)
-                        .toArray();
+
+                // Si el usuario ingresa '*', seleccionar todas las columnas
+                if (linea.equals("*")) {
+                    columnasDeseadas = obtenerTodasLasColumnas(archivoEntrada);
+                    System.out.println("   Se seleccionaron todas las columnas (" + columnasDeseadas.length + " columnas)");
+                } else {
+                    columnasDeseadas = Arrays.stream(linea.split(","))
+                            .map(String::trim)
+                            .mapToInt(Integer::parseInt)
+                            .toArray();
+                }
             } catch (Exception e) {
-                System.err.println("   Error: Formato inválido. Use solo números y comas.");
+                System.err.println("   Error: Formato inválido. Use solo números y comas, o '*' para todas.");
             }
         }
 
-        // --- 5. SELECCIÓN DE MODO (EL PUNTO CLAVE DEL PROYECTO) ---
+        // --- 5. SELECCIÓN DE MODO (1: Concurrente, 2: Secuencial) ---
         System.out.println("\n=================================================");
         System.out.println(" SELECCIONE ESTRATEGIA DE EJECUCIÓN ");
         System.out.println("=================================================");
@@ -74,20 +102,19 @@ public class App {
         System.out.println("     - Procesa fragmentos UNO POR UNO (sin paralelismo).");
         System.out.println("     - Usa solo 1 núcleo (Línea base para comparar).");
         System.out.println("=================================================");
-
-        int opcion = leerEntero(scanner, ">> Opción (1 o 2): ");
+        int opcion = leerEntero(scanner, ">> Opcion (1 o 2): ");
 
         // --- 6. EJECUCIÓN Y MEDICIÓN ---
-        System.out.println("\nIniciando proceso... (El cronómetro corre ahora)");
+        System.out.println("\nProcesando...");
         long inicio = System.currentTimeMillis();
 
         if (opcion == 1) {
             // MODO CONCURRENTE
             Manager manager = new Manager(archivoEntrada, nombreSalida, criterio, columnasDeseadas);
             manager.procesar();
+
         } else {
             // MODO SECUENCIAL (REUTILIZABLE)
-            // Ajustamos el nombre para no sobrescribir la prueba concurrente
             if (!nombreSalida.contains("_sec")) {
                 nombreSalida = nombreSalida.replace(".csv", "_secuencial.csv");
             }
@@ -129,5 +156,31 @@ public class App {
         System.out.println("#      ANALIZADOR DE COMERCIO EXTERIOR (JAPÓN)  #");
         System.out.println("#           Proyecto Final - PA2026-1           #");
         System.out.println("#################################################");
+    }
+
+    /**
+     * Lee el archivo CSV y determina el número total de columnas.
+     * Retorna un array con todos los índices de columnas (0, 1, 2, ..., n-1)
+     */
+    private static int[] obtenerTodasLasColumnas(File archivoCsv) {
+        try (BufferedReader reader = new BufferedReader(new FileReader(archivoCsv))) {
+            String primeraLinea = reader.readLine();
+            if (primeraLinea != null) {
+                String[] columnas = primeraLinea.split(",");
+                int totalColumnas = columnas.length;
+
+                // Crear array con índices [0, 1, 2, ..., n-1]
+                int[] indices = new int[totalColumnas];
+                for (int i = 0; i < totalColumnas; i++) {
+                    indices[i] = i;
+                }
+                return indices;
+            }
+        } catch (IOException e) {
+            System.err.println("   Error al leer el archivo para determinar columnas: " + e.getMessage());
+        }
+
+        // Si hay error, retornar array vacío
+        return new int[0];
     }
 }

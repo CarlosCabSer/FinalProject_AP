@@ -62,7 +62,6 @@ public class ManagerSecuencial {
                     // El programa se detiene aquí hasta que termine este fragmento
                     ResumenResultados resultado = tarea.call();
                     listaResultados.add(resultado);
-                    System.out.println("Fragmento " + idWorker + " procesado.");
 
                 } catch (Exception e) {
                     System.err.println("Error procesando fragmento: " + e.getMessage());

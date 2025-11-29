@@ -5,10 +5,7 @@ import java.util.concurrent.Callable;
 import java.util.List;
 import java.util.ArrayList;
 
-/**
- * Representa una tarea (Worker) que procesa un fragmento del archivo CSV.
- * Implementa Callable para retornar un resumen estadístico al finalizar.
- */
+
 public class WorkerTask implements Callable<ResumenResultados> {
 
     private final File archivoEntrada;     // El fragmento a leer (fragmento_n.csv)
