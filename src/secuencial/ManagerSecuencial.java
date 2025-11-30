@@ -1,136 +1,125 @@
 package secuencial;
 
 import Hilos.CriterioFiltro;
-import Hilos.ResumenResultados;
-import Hilos.WorkerTask;
-import FileSplitter.FileSplitter;
 
 import java.io.*;
-import java.util.ArrayList;
-import java.util.List;
 
 /**
- * Versión Secuencial que divide el archivo igual que la concurrente,
- * pero procesa los fragmentos uno por uno (sin hilos).
- * Realiza: Split -> Proceso Secuencial -> Merge
+ * Versión Secuencial PURA - Procesa el archivo completo sin dividir.
+ * Lee el archivo línea por línea y aplica filtros directamente.
+ * Esta es la línea base (baseline) para comparar con la versión concurrente.
  */
 public class ManagerSecuencial {
 
     private final File archivoOrigen;
     private final File archivoFinal;
-    private final File carpetaTemporal;
     private final CriterioFiltro criterio;
     private final int[] columnasDeseadas;
 
     public ManagerSecuencial(File archivoOrigen, String rutaSalida, CriterioFiltro criterio, int[] columnasDeseadas) {
         this.archivoOrigen = archivoOrigen;
         this.archivoFinal = new File(rutaSalida);
-        // Carpeta temporal distinta para no mezclar con la concurrente
-        this.carpetaTemporal = new File("temp_secuencial_" + System.currentTimeMillis());
         this.criterio = criterio;
         this.columnasDeseadas = columnasDeseadas;
     }
 
     public void procesar() {
-        // 1. Determinar número de fragmentos (mismo que concurrente)
-        int numProcesadores = Runtime.getRuntime().availableProcessors();
-        int numSubArchivos = numProcesadores * 2;
+        System.out.println("--- Inicio Procesamiento Secuencial (Sin División) ---");
+        System.out.println("Procesando archivo completo de forma secuencial...");
 
-        System.out.println("--- Inicio Procesamiento Secuencial ---");
-        System.out.println("Núcleos detectados: " + numProcesadores);
-        System.out.println("Dividiendo archivo en " + numSubArchivos + " fragmentos...");
-
-        FileSplitter splitter = new FileSplitter();
-        List<ResumenResultados> listaResultados = new ArrayList<>();
+        long lineasProcesadas = 0;
+        long lineasAceptadas = 0;
+        long lineasConError = 0;
 
         try {
-            // 2. Fase de División (Splitting) - NO se cuenta en el tiempo
-            List<File> fragmentos = splitter.dividirArchivo(archivoOrigen, carpetaTemporal, numSubArchivos);
-
-            // INICIAR CRONÓMETRO AQUÍ - Solo para procesamiento
+            // INICIAR CRONÓMETRO - Solo para procesamiento
             long tiempoInicio = System.currentTimeMillis();
 
-            System.out.println("Procesando fragmentos uno por uno (secuencial)...");
+            // Procesar el archivo completo línea por línea
+            try (BufferedReader lector = new BufferedReader(new FileReader(archivoOrigen));
+                 BufferedWriter escritor = new BufferedWriter(new FileWriter(archivoFinal))) {
 
-            // 3. Procesar fragmentos UNO POR UNO (sin hilos)
-            int idWorker = 0;
-            for (File fragmento : fragmentos) {
-                WorkerTask tarea = new WorkerTask(fragmento, carpetaTemporal, idWorker++, criterio, columnasDeseadas);
+                // Leer y procesar encabezado
+                String header = lector.readLine();
+                if (header != null) {
+                    escritor.write(filtrarColumnas(header, columnasDeseadas));
+                    escritor.newLine();
+                }
 
-                try {
-                    // Llamamos a .call() directamente en el hilo principal
-                    // El programa se detiene aquí hasta que termine este fragmento
-                    ResumenResultados resultado = tarea.call();
-                    listaResultados.add(resultado);
+                // Procesar línea por línea
+                String linea;
+                while ((linea = lector.readLine()) != null) {
+                    lineasProcesadas++;
+                    try {
+                        // Separar por comas (CSV simple)
+                        String[] columnas = linea.split(",");
 
-                } catch (Exception e) {
-                    System.err.println("Error procesando fragmento: " + e.getMessage());
+                        // Verificar criterio (Lógica de negocio)
+                        if (cumpleCriterio(columnas, criterio)) {
+                            // Construir la línea de salida solo con columnas deseadas
+                            String lineaFiltrada = construirLineaSalida(columnas, columnasDeseadas);
+
+                            escritor.write(lineaFiltrada);
+                            escritor.newLine();
+                            lineasAceptadas++;
+                        }
+
+                    } catch (Exception e) {
+                        // Manejo de errores: Contar pero continuar
+                        lineasConError++;
+                    }
                 }
             }
 
-            // 4. Unificación (Merge)
-            System.out.println("Unificando resultados...");
-            unificarResultados(listaResultados, archivoFinal);
-
-            // DETENER CRONÓMETRO - Después de unificar
+            // DETENER CRONÓMETRO
             long tiempoTotal = System.currentTimeMillis() - tiempoInicio;
 
-            // Estadísticas
-            long totalProcesados = listaResultados.stream().mapToLong(r -> r.totalProcesados).sum();
-            long totalAceptados = listaResultados.stream().mapToLong(r -> r.totalAceptados).sum();
-            long totalErrores = listaResultados.stream().mapToLong(r -> r.totalErrores).sum();
-
+            // Reporte final
             System.out.println("--- Fin Secuencial ---");
             System.out.println("Tiempo de procesamiento secuencial: " + (tiempoTotal / 1000.0) + " segundos.");
-            System.out.println("Registros procesados: " + totalProcesados);
-            System.out.println("Registros filtrados (guardados): " + totalAceptados);
-            System.out.println("Errores encontrados: " + totalErrores);
+            System.out.println("Registros procesados: " + lineasProcesadas);
+            System.out.println("Registros filtrados (guardados): " + lineasAceptadas);
+            System.out.println("Errores encontrados: " + lineasConError);
 
         } catch (IOException e) {
             System.err.println("Error crítico: " + e.getMessage());
             e.printStackTrace();
-        } finally {
-            limpiarTemporales();
         }
     }
 
     /**
-     * Combina los archivos parciales en uno solo.
+     * Verifica si una fila cumple con el criterio de filtrado.
      */
-    private void unificarResultados(List<ResumenResultados> resultados, File destino) throws IOException {
-        try (BufferedWriter escritor = new BufferedWriter(new FileWriter(destino))) {
-            boolean esPrimerArchivo = true;
-            for (ResumenResultados res : resultados) {
-                try (BufferedReader lector = new BufferedReader(new FileReader(res.archivoResultado))) {
-                    String linea = lector.readLine();
-                    if (linea != null) {
-                        if (esPrimerArchivo) {
-                            escritor.write(linea);
-                            escritor.newLine();
-                            esPrimerArchivo = false;
-                        }
-                    }
-                    while ((linea = lector.readLine()) != null) {
-                        escritor.write(linea);
-                        escritor.newLine();
-                    }
-                }
-            }
-        }
+    private boolean cumpleCriterio(String[] columnas, CriterioFiltro filtro) {
+        if (filtro == null) return true;
+        if (filtro.indiceColumna >= columnas.length) return false;
+
+        String valorCelda = columnas[filtro.indiceColumna].trim();
+        return valorCelda.equals(filtro.valorEsperado);
     }
 
     /**
-     * Elimina la carpeta temporal y todo su contenido.
+     * Filtra las columnas del encabezado.
      */
-    private void limpiarTemporales() {
-        if (carpetaTemporal.exists()) {
-            File[] archivos = carpetaTemporal.listFiles();
-            if (archivos != null) {
-                for (File f : archivos) {
-                    f.delete();
+    private String filtrarColumnas(String linea, int[] indices) {
+        String[] partes = linea.split(",");
+        return construirLineaSalida(partes, indices);
+    }
+
+    /**
+     * Construye una línea de salida con solo las columnas seleccionadas.
+     */
+    private String construirLineaSalida(String[] columnas, int[] indices) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < indices.length; i++) {
+            int indice = indices[i];
+            if (indice < columnas.length) {
+                sb.append(columnas[indice]);
+                if (i < indices.length - 1) {
+                    sb.append(",");
                 }
             }
-            carpetaTemporal.delete();
         }
+        return sb.toString();
     }
 }

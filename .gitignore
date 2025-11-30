@@ -31,3 +31,6 @@ bin/
 
 ### CSV ###
 *.csv
+*.png
+*.claude
+

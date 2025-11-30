@@ -39,11 +39,15 @@ public class Manager {
     public void procesar() {
         // 1. Determinar número de hilos y subarchivos
         int numProcesadores = Runtime.getRuntime().availableProcessors();
-        // El PDF sugiere dividir en más partes que procesadores para mejor balanceo (ej. 2*N o 4*N)
-        int numSubArchivos = numProcesadores * 2;
 
-        System.out.println("--- Inicio del Procesamiento ---");
+        // OPTIMIZACIÓN: Para archivos grandes (>1GB), crear más fragmentos
+        long tamañoArchivoMB = archivoOrigen.length() / (1024 * 1024);
+        int numSubArchivos = numProcesadores * 6;
+
+
+        System.out.println("--- Inicio del Procesamiento CONCURRENTE ---");
         System.out.println("Núcleos detectados: " + numProcesadores);
+        System.out.println("Tamaño del archivo: " + tamañoArchivoMB + " MB");
         System.out.println("Dividiendo archivo en " + numSubArchivos + " fragmentos...");
 
         ExecutorService executor = Executors.newFixedThreadPool(numProcesadores);
@@ -51,13 +55,17 @@ public class Manager {
         FileSplitter splitter = new FileSplitter();
 
         try {
-            // 2. Fase de División (Splitting) - NO se cuenta en el tiempo
+            // 2. Fase de División (Splitting)
+            long tiempoSplitInicio = System.currentTimeMillis();
             List<File> fragmentos = splitter.dividirArchivo(archivoOrigen, carpetaTemporal, numSubArchivos);
+            long tiempoSplit = System.currentTimeMillis() - tiempoSplitInicio;
+            System.out.println("Tiempo de división: " + (tiempoSplit / 1000.0) + " segundos.");
 
             // INICIAR CRONÓMETRO AQUÍ - Solo para procesamiento paralelo
             long tiempoInicio = System.currentTimeMillis();
 
-            // 3. Fase de Asignación (Mapping)
+            // 3. Fase de Asignación (Mapping) - Enviar TODAS las tareas de una vez
+            System.out.println("Procesando en paralelo...");
             int idWorker = 0;
             for (File fragmento : fragmentos) {
                 WorkerTask tarea = new WorkerTask(fragmento, carpetaTemporal, idWorker++, criterio, columnasDeseadas);
@@ -67,16 +75,17 @@ public class Manager {
             }
 
             // 4. Fase de Recolección de Estadísticas (Reduce parcial)
+            // IMPORTANTE: Aquí todas las tareas YA están ejecutándose en paralelo
+            // Solo esperamos a que TODAS terminen
             long totalProcesados = 0;
             long totalAceptados = 0;
             long totalErrores = 0;
             List<File> archivosParciales = new ArrayList<>();
 
-            System.out.println("Procesando en paralelo...");
-
             for (Future<ResumenResultados> f : listaFutures) {
                 try {
-                    // .get() bloquea hasta que el hilo termine su tarea específica
+                    // .get() bloquea hasta que ESTA tarea específica termine
+                    // Pero las demás siguen ejecutándose en paralelo
                     ResumenResultados resultado = f.get();
 
                     totalProcesados += resultado.totalProcesados;
@@ -89,19 +98,32 @@ public class Manager {
                 }
             }
 
+            // DETENER CRONÓMETRO - Después de recolectar resultados
+            long tiempoProcesamiento = System.currentTimeMillis() - tiempoInicio;
+
             // 5. Fase de Unificación (Merge final)
             System.out.println("Unificando resultados en " + archivoFinal.getName() + "...");
+            long tiempoMergeInicio = System.currentTimeMillis();
             unificarResultados(archivosParciales, archivoFinal);
+            long tiempoMerge = System.currentTimeMillis() - tiempoMergeInicio;
 
-            // DETENER CRONÓMETRO - Después de unificar
-            long tiempoTotal = System.currentTimeMillis() - tiempoInicio;
+            // Calcular tiempo total
+            long tiempoTotal = tiempoSplit + tiempoProcesamiento + tiempoMerge;
 
-            // Reporte final en consola
-            System.out.println("--- Procesamiento Finalizado ---");
-            System.out.println("Tiempo de procesamiento paralelo: " + (tiempoTotal / 1000.0) + " segundos.");
-            System.out.println("Registros procesados: " + totalProcesados);
+            // Reporte final en consola con métricas detalladas
+            System.out.println("\n=================================================");
+            System.out.println("  REPORTE DETALLADO - MODO CONCURRENTE");
+            System.out.println("=================================================");
+            System.out.println("Tiempo de División (Split):    " + (tiempoSplit / 1000.0) + " s");
+            System.out.println("Tiempo de Procesamiento:       " + (tiempoProcesamiento / 1000.0) + " s");
+            System.out.println("Tiempo de Unificación (Merge): " + (tiempoMerge / 1000.0) + " s");
+            System.out.println("-------------------------------------------------");
+            System.out.println("TIEMPO TOTAL:                  " + (tiempoTotal / 1000.0) + " s");
+            System.out.println("=================================================");
+            System.out.println("Registros procesados:          " + totalProcesados);
             System.out.println("Registros filtrados (guardados): " + totalAceptados);
-            System.out.println("Errores encontrados: " + totalErrores);
+            System.out.println("Errores encontrados:           " + totalErrores);
+            System.out.println("=================================================");
 
         } catch (IOException e) {
             System.err.println("Error crítico de E/S: " + e.getMessage());
