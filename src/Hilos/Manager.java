@@ -40,17 +40,17 @@ public class Manager {
         // 1. Determinar número de hilos y subarchivos
         int numProcesadores = Runtime.getRuntime().availableProcessors();
 
-        // OPTIMIZACIÓN: Para archivos grandes (>1GB), crear más fragmentos
-        long tamañoArchivoMB = archivoOrigen.length() / (1024 * 1024);
-        int numSubArchivos = numProcesadores * 6;
-
+        // Configuración: Cada hilo procesa EXACTAMENTE un fragmento
+        // Número de fragmentos = Número de hilos
+        int numSubArchivos = numProcesadores * 25;  // Cantidad de fragmentos
+        int numHilos = numSubArchivos;              // Igualamos: 1 hilo por fragmento
 
         System.out.println("--- Inicio del Procesamiento CONCURRENTE ---");
         System.out.println("Núcleos detectados: " + numProcesadores);
-        System.out.println("Tamaño del archivo: " + tamañoArchivoMB + " MB");
+        System.out.println("Hilos a crear: " + numHilos);
         System.out.println("Dividiendo archivo en " + numSubArchivos + " fragmentos...");
 
-        ExecutorService executor = Executors.newFixedThreadPool(numProcesadores);
+        ExecutorService executor = Executors.newFixedThreadPool(numHilos);
         List<Future<ResumenResultados>> listaFutures = new ArrayList<>();
         FileSplitter splitter = new FileSplitter();
 
